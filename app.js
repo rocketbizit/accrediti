@@ -11,13 +11,23 @@ let database = JSON.parse(localStorage.getItem('event_db')) || [
 let html5QrCode;
 let searchTimeout;
 
+// Variabile per evitare la lettura multipla a raffica
+let isScansioneInPausa = false; 
+
 // --- INIZIALIZZAZIONE ---
-window.onload = () => {
+window.onload = async () => {
+    // 1. Legge prima da Google Sheets se possibile
+    await caricaDaGoogleSheet();
+    
+    // Inizializza l'interfaccia e avvia i listener
     aggiornaUI();
     checkConnection();
     window.addEventListener('online', checkConnection);
     window.addEventListener('offline', checkConnection);
     avviaScanner();
+
+    // 2. Avvia la sincronizzazione automatica ogni 15 minuti (15 * 60 * 1000 ms)
+    setInterval(sincronizzaConGoogleSheet, 900000);
 };
 
 function checkConnection() {
@@ -31,17 +41,50 @@ function aggiornaUI() {
     localStorage.setItem('event_db', JSON.stringify(database));
 }
 
+// --- CARICAMENTO DA GOOGLE SHEET (All'avvio) ---
+async function caricaDaGoogleSheet() {
+    if (!navigator.onLine) {
+        console.log("Sei offline, utilizzo i dati salvati in memoria locale.");
+        return;
+    }
+    
+    if (GOOGLE_SCRIPT_URL === "INSERISCI_QUI_IL_TUO_URL_DI_GOOGLE_APPS_SCRIPT") {
+        console.warn("URL di Google Apps Script non configurato.");
+        return;
+    }
+
+    try {
+        const response = await fetch(GOOGLE_SCRIPT_URL);
+        const data = await response.json();
+        
+        if (data && data.length > 0) {
+            database = data; // Sostituisce il database locale con quello del foglio
+            aggiornaUI();    // Salva nel localStorage e aggiorna la vista
+            console.log("Database caricato correttamente da Google Sheets");
+        }
+    } catch (error) {
+        console.error("Errore nel caricamento da Google Sheets (utilizzo i dati locali): ", error);
+    }
+}
+
 // --- LOGICA SCANNER ---
 function avviaScanner() {
     html5QrCode = new Html5Qrcode("reader");
     const config = { fps: 15, qrbox: { width: 250, height: 250 } };
     
     html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
-        vibrateDevice();
-        processaIngresso(decodedText);
+        onScanSuccess(decodedText);
     }).catch(err => {
         console.log("Fotocamera già attiva o permessi negati: ", err);
     });
+}
+
+function onScanSuccess(decodedText) {
+    // Controlla se il sistema è in pausa dopo un'acquisizione
+    if (isScansioneInPausa) return;
+    
+    vibrateDevice();
+    processaIngresso(decodedText);
 }
 
 function processaIngresso(codice) {
@@ -58,6 +101,12 @@ function processaIngresso(codice) {
         utente.presente = true;
         aggiornaUI();
         mostraModal("✅", "Benvenuto", `${utente.nome} ${utente.cognome}`, "bg-green-50");
+        
+        // Blocca le scansioni per 5 secondi per non leggere a raffica lo stesso badge
+        isScansioneInPausa = true;
+        setTimeout(() => {
+            isScansioneInPausa = false;
+        }, 5000);
     }
 }
 
@@ -141,30 +190,29 @@ function vibrateDevice() {
     if ("vibrate" in navigator) navigator.vibrate(100);
 }
 
-// Funzione di comunicazione con Google Sheets
+// Funzione di comunicazione con Google Sheets (Manuale e Automatica)
 async function sincronizzaConGoogleSheet() {
-    if (!navigator.onLine) {
-        alert("Sei offline! Non è possibile sincronizzare con il cloud.");
-        return;
+    if (!navigator.onLine) { // Ignora se disconnesso temporaneamente
+         console.log("Sistema offline, sincronizzazione ignorata.");
     }
-    
+
     if (GOOGLE_SCRIPT_URL === "INSERISCI_QUI_IL_TUO_URL_DI_GOOGLE_APPS_SCRIPT") {
-        alert("Inserisci l'URL del tuo Google Apps Script nel file app.js");
         return;
     }
 
     try {
         const response = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
-            mode: 'no-cors', // Modalità necessaria per superare i blocchi CORS del browser
+            mode: 'no-cors',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(database)
         });
-        alert("Dati sincronizzati con successo!");
+        
+        // Emette feedback che l'operazione è andata a buon fine sovrascrivendo i dati sul foglio
+        mostraModal("✅", "Sincronizzato", "Dati salvati con successo sul foglio Google!", "bg-green-50");
     } catch (error) {
         console.error("Errore di sincronizzazione: ", error);
-        alert("Si è verificato un errore durante la sincronizzazione dei dati.");
     }
 }
