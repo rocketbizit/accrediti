@@ -1,6 +1,5 @@
 // --- CONFIGURAZIONE GOOGLE SCRIPT ---
-// Inserisci qui l'URL della Web App di Google Apps Script che hai creato
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxYC0C3eSpjpsdrRZJ6N5caWEZWjqWXFO4-e-PelrNkiuNh-fQMqRIi-z5vu8S33sse/exec";
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz_8hLUXauWxfnCHzBtP_jIZveoHbs9jf5kwy1cp508ZDBU2YXZL2ead0QsGjPWRSxi/exec";
 
 // --- STATO DELL'APPLICAZIONE ---
 let database = JSON.parse(localStorage.getItem('event_db')) || [
@@ -62,7 +61,10 @@ async function caricaDaGoogleSheet() {
     }
 
     try {
-        const response = await fetch(GOOGLE_SCRIPT_URL);
+        const response = await fetch(GOOGLE_SCRIPT_URL, {
+            method: 'GET',
+            mode: 'cors'
+        });
         console.log("📥 Risposta ricevuta dal server:", response.status);
         
         const data = await response.json();
@@ -83,19 +85,14 @@ function avviaScanner() {
     html5QrCode = new Html5Qrcode("reader");
     const config = { fps: 15, qrbox: { width: 250, height: 250 } };
     
-    html5QrCodeStart();
-    
-    function htmlQrCodeStart() {
-      html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
-          onScanSuccess(decodedText);
-      }).catch(err => {
-          console.log("Fotocamera già attiva o permessi negati: ", err);
-      });
-    }
+    html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
+        onScanSuccess(decodedText);
+    }).catch(err => {
+        console.log("Fotocamera già attiva o permessi negati: ", err);
+    });
 }
 
 function onScanSuccess(decodedText) {
-    // Controlla se il sistema è in pausa dopo un'acquisizione
     if (isScansioneInPausa) return;
     
     vibrateDevice();
@@ -121,7 +118,7 @@ function processaIngresso(codice) {
         mostraModal("✅", "Benvenuto", `${utente.nome} ${utente.cognome}`, "bg-green-50");
         console.log("🎉 Ingresso registrato per:", utente.cognome);
         
-        // Blocca le scansioni per 5 secondi per non leggere a raffica lo stesso badge
+        // Pausa di 5 secondi
         isScansioneInPausa = true;
         setTimeout(() => {
             isScansioneInPausa = false;
@@ -237,10 +234,7 @@ async function sincronizzaConGoogleSheet() {
             body: JSON.stringify(database)
         });
 
-        // Poiché usiamo no-cors (necessario per Google Script), la risposta è opaca.
-        // Possiamo assumere che se non ha generato un errore, sia arrivata correttamente.
-        console.log("📤 Richiesta di sincronizzazione inviata (no-cors).");
-        
+        console.log("📤 Richiesta di sincronizzazione inviata.");
         setTimeout(() => {
             mostraModal("✅", "Sincronizzato", "Dati salvati con successo sul foglio Google!", "bg-green-50");
         }, 1200);
