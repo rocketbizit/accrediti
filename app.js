@@ -1,5 +1,5 @@
 // --- CONFIGURAZIONE GOOGLE SCRIPT ---
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzJ7VwURxXmQywn88FfouMvpE7V_DsnjxwL2qtoygbkpNPeWqRFOMp-fMVfblc2Y8Xg/exec";
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyMVy-zjw0yY8BR4LVSqSwSG6EA4GGb_N2SkSQyX9LSgVAkPyvLy7ndshRlm0QrhSoI/exec";
 
 // --- STATO DELL'APPLICAZIONE ---
 let database = JSON.parse(localStorage.getItem('event_db')) || [
