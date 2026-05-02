@@ -1,6 +1,6 @@
 // --- CONFIGURAZIONE GOOGLE SCRIPT ---
 // Inserisci qui l'URL della Web App di Google Apps Script che hai creato
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyCAOSJ5m67plFNkJZsHlNxlCuX40ovUF624AwZCJDQIqZMUyWGfcFMQALHhJj588wp/exec";
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxYC0C3eSpjpsdrRZJ6N5caWEZWjqWXFO4-e-PelrNkiuNh-fQMqRIi-z5vu8S33sse/exec";
 
 // --- STATO DELL'APPLICAZIONE ---
 let database = JSON.parse(localStorage.getItem('event_db')) || [
