@@ -1,36 +1,38 @@
 // --- CONFIGURAZIONE GOOGLE SCRIPT ---
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz_8hLUXauWxfnCHzBtP_jIZveoHbs9jf5kwy1cp508ZDBU2YXZL2ead0QsGjPWRSxi/exec";
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwpGoL3fPLjINcdlsqrVH-EwHQCtCuUP6_B3EzQiL787ZDPQpGHIwFK15tginEXV2uw/exec";
 
 // --- STATO DELL'APPLICAZIONE ---
 let database = JSON.parse(localStorage.getItem('event_db')) || [
-    { id: "INV001", nome: "Mario", cognome: "Rossi", telefono: "3331234567", email: "mario@rossi.it", azienda: "Tech Corp", presente: false },
-    { id: "INV002", nome: "Giulia", cognome: "Verdi", telefono: "3339876543", email: "giulia@verdi.it", azienda: "Digital Agency", presente: false }
+    { id: "INV001", nome: "Esempio", cognome: "Mario", telefono: "", email: "", azienda: "", presente: false }
 ];
 
 let html5QrCode;
 let searchTimeout;
-
-// Variabile per evitare la lettura multipla a raffica
 let isScansioneInPausa = false; 
 
 // --- INIZIALIZZAZIONE ---
 window.onload = async () => {
     console.log("🔄 Avvio dell'applicazione...");
     
-    // 1. Legge prima da Google Sheets
+    // 1. Tenta la lettura da Google Sheets
     await caricaDaGoogleSheet();
     
-    // Inizializza l'interfaccia e avvia i listener
+    // 2. Inizializza UI e Sensori
     aggiornaUI();
     checkConnection();
     window.addEventListener('online', checkConnection);
     window.addEventListener('offline', checkConnection);
+    
     avviaScanner();
 
-    // 2. Avvia la sincronizzazione automatica ogni 15 minuti
-    setInterval(sincronizzaConGoogleSheet, 900000);
-    console.log("⏱️ Sincronizzazione automatica programmata ogni 15 minuti.");
+    // 3. Sincronizzazione automatica ogni 15 minuti (900.000 ms)
+    setInterval(() => {
+        console.log("⏱️ Avvio sincronizzazione automatica programmata...");
+        sincronizzaConGoogleSheet(true); // passiamo true per farlo silenziosamente
+    }, 900000);
 };
+
+// --- FUNZIONI DI RETE ---
 
 function checkConnection() {
     const isOnline = navigator.onLine;
@@ -38,96 +40,109 @@ function checkConnection() {
     console.log("🌐 Stato connessione:", isOnline ? "Online" : "Offline");
 }
 
-function aggiornaUI() {
-    const pres = database.filter(i => i.presente).length;
-    document.getElementById('statPresenti').innerText = pres;
-    document.getElementById('statMancanti').innerText = database.length - pres;
-    localStorage.setItem('event_db', JSON.stringify(database));
-    console.log("📊 UI aggiornata. Presenti:", pres, "| Mancanti:", database.length - pres);
-}
-
-// --- CARICAMENTO DA GOOGLE SHEET (All'avvio) ---
+// Lettura iniziale (GET)
 async function caricaDaGoogleSheet() {
-    console.log("📥 Tentativo di caricamento da Google Sheets...");
-    
-    if (!navigator.onLine) {
-        console.warn("⚠️ Sei offline, utilizzo i dati salvati in memoria locale.");
+    if (!navigator.onLine || GOOGLE_SCRIPT_URL.includes("INSERISCI")) {
+        console.warn("⚠️ Caricamento da Google saltato (Offline o URL mancante).");
         return;
     }
     
-    if (GOOGLE_SCRIPT_URL === "INSERISCI_QUI_IL_TUO_URL_DI_GOOGLE_APPS_SCRIPT") {
-        console.error("❌ URL di Google Apps Script non configurato.");
-        return;
+    console.log("📥 Richiesta dati a Google Sheets...");
+    try {
+        const response = await fetch(GOOGLE_SCRIPT_URL);
+        if (!response.ok) throw new Error("Risposta del server non valida");
+        
+        const data = await response.json();
+        console.log("📄 Dati ricevuti:", data);
+        
+        if (data && data.length > 0) {
+            database = data;
+            console.log("✅ Database aggiornato dal Cloud.");
+        }
+    } catch (error) {
+        console.error("❌ Errore nel caricamento Cloud:", error);
+        // In caso di errore, il database resta quello caricato dal localStorage all'inizio
+    }
+}
+
+// Scrittura (POST) - Usata sia per manuale che automatico
+async function sincronizzaConGoogleSheet(isAutomatic = false) {
+    if (!navigator.onLine || GOOGLE_SCRIPT_URL.includes("INSERISCI")) return;
+
+    if (!isAutomatic) {
+        mostraModal("🔄", "Sincronizzazione", "Salvataggio sul foglio Google...", "bg-blue-50");
     }
 
     try {
-        const response = await fetch(GOOGLE_SCRIPT_URL, {
-            method: 'GET',
-            mode: 'cors'
+        await fetch(GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors', // Fondamentale per i permessi Google in scrittura
+            cache: 'no-cache',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(database)
         });
-        console.log("📥 Risposta ricevuta dal server:", response.status);
-        
-        const data = await response.json();
-        console.log("📄 Dati letti dal foglio:", data);
-        
-        if (data && data.length > 0) {
-            database = data; // Sostituisce il database locale con quello del foglio
-            aggiornaUI();    // Salva nel localStorage e aggiorna la vista
-            console.log("✅ Database sovrascritto correttamente con i dati di Google Sheets.");
+
+        console.log("📤 Dati inviati con successo.");
+        if (!isAutomatic) {
+            mostraModal("✅", "Sincronizzato", "Dati salvati correttamente!", "bg-green-50");
         }
     } catch (error) {
-        console.error("❌ Errore nel caricamento da Google Sheets (utilizzo i dati locali): ", error);
+        console.error("❌ Errore sincronizzazione:", error);
+        if (!isAutomatic) {
+            mostraModal("❌", "Errore", "Impossibile salvare i dati online.", "bg-red-50");
+        }
     }
 }
 
 // --- LOGICA SCANNER ---
+
 function avviaScanner() {
     html5QrCode = new Html5Qrcode("reader");
     const config = { fps: 15, qrbox: { width: 250, height: 250 } };
     
     html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
-        onScanSuccess(decodedText);
+        if (isScansioneInPausa) return;
+        vibrateDevice();
+        processaIngresso(decodedText);
     }).catch(err => {
-        console.log("Fotocamera già attiva o permessi negati: ", err);
+        console.warn("Fotocamera non disponibile:", err);
     });
 }
 
-function onScanSuccess(decodedText) {
-    if (isScansioneInPausa) return;
-    
-    vibrateDevice();
-    processaIngresso(decodedText);
-}
-
 function processaIngresso(codice) {
-    console.log("📷 Scansione rilevata:", codice);
-    const utente = database.find(u => u.id === codice || u.codice === codice);
+    console.log("📷 Codice rilevato:", codice);
+    // Controllo flessibile su ID o campo 'codice' se presente
+    const utente = database.find(u => u.id == codice || u.codice == codice);
     
     if (!utente) {
-        mostraModal("❌", "Errore", "Codice non trovato nel database.", "bg-red-50");
-        console.warn("⚠️ Utente non trovato per il codice:", codice);
+        mostraModal("❌", "Non Trovato", "Questo codice non è in lista.", "bg-red-50");
         return;
     }
 
     if (utente.presente) {
-        mostraModal("⚠️", "Già Entrato", `${utente.nome} ${utente.cognome} ha già effettuato l'accesso.`, "bg-orange-50");
-        console.log("ℹ️ L'utente è già presente:", utente.cognome);
+        mostraModal("⚠️", "Già Entrato", `${utente.nome} ${utente.cognome} è già dentro.`, "bg-orange-50");
     } else {
         utente.presente = true;
         aggiornaUI();
         mostraModal("✅", "Benvenuto", `${utente.nome} ${utente.cognome}`, "bg-green-50");
-        console.log("🎉 Ingresso registrato per:", utente.cognome);
         
-        // Pausa di 5 secondi
+        // Timeout di 5 secondi per evitare doppie letture accidentali
         isScansioneInPausa = true;
-        setTimeout(() => {
-            isScansioneInPausa = false;
-            console.log("📸 Ripresa scansioni.");
-        }, 5000);
+        setTimeout(() => { isScansioneInPausa = false; }, 5000);
     }
 }
 
-// --- RICERCA MANUALE ---
+// --- GESTIONE DATI E UI ---
+
+function aggiornaUI() {
+    const pres = database.filter(i => i.presente).length;
+    document.getElementById('statPresenti').innerText = pres;
+    document.getElementById('statMancanti').innerText = database.length - pres;
+    
+    // Salva sempre una copia locale di sicurezza
+    localStorage.setItem('event_db', JSON.stringify(database));
+}
+
 function cercaDebounced() {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(eseguiRicerca, 300);
@@ -145,21 +160,20 @@ function eseguiRicerca() {
             const div = document.createElement('div');
             div.className = `p-4 rounded-2xl flex justify-between items-center ${u.presente ? 'bg-slate-100 opacity-60' : 'bg-white shadow-sm border border-slate-200'}`;
             div.innerHTML = `
-                <div>
-                    <p class="font-bold">${u.nome} ${u.cognome}</p>
-                    <p class="text-xs text-slate-400">${u.email || ''} - ${u.telefono || ''}</p>
+                <div class="text-left">
+                    <p class="font-bold text-slate-800">${u.nome} ${u.cognome}</p>
+                    <p class="text-xs text-slate-400">${u.azienda || 'Privato'}</p>
                 </div>
-                ${!u.presente ? `<button onclick="processaIngresso('${u.id}')" class="bg-indigo-100 text-indigo-600 px-4 py-2 rounded-xl text-sm font-bold">Accredita</button>` : '<i class="fa-solid fa-check text-green-500 mr-3"></i>'}
+                ${!u.presente ? `<button onclick="processaIngresso('${u.id}')" class="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md">Accredita</button>` : '<i class="fa-solid fa-circle-check text-green-500 text-xl mr-2"></i>'}
             `;
             res.appendChild(div);
         });
 }
 
-// --- AGGIUNGI OSPITE LAST-MINUTE ---
 function aggiungiOspite(e) {
     e.preventDefault();
     const nuovo = {
-        id: "WALKIN-" + Date.now(),
+        id: "W-" + Date.now(),
         nome: document.getElementById('fn').value,
         cognome: document.getElementById('ln').value,
         telefono: document.getElementById('tel').value,
@@ -172,16 +186,16 @@ function aggiungiOspite(e) {
     aggiornaUI();
     e.target.reset();
     
-    mostraModal("➕", "Registrato", `${nuovo.nome} è stato aggiunto e accreditato.`, "bg-blue-50");
-    console.log("➕ Nuovo ospite aggiunto:", nuovo.nome, nuovo.cognome);
+    mostraModal("➕", "Registrato", `${nuovo.nome} aggiunto e accreditato.`, "bg-blue-50");
 }
 
-// --- MODAL FEEDBACK ---
+// --- UTILITY ---
+
 function mostraModal(icon, title, text, bgColor) {
     document.getElementById('modalIcon').innerText = icon;
     document.getElementById('modalTitle').innerText = title;
     document.getElementById('modalText').innerText = text;
-    document.getElementById('modalContent').className = `bg-white w-full max-w-sm rounded-3xl p-8 text-center relative z-10 ${bgColor}`;
+    document.getElementById('modalContent').className = `bg-white w-full max-w-sm rounded-3xl p-8 text-center relative z-10 ${bgColor} shadow-2xl`;
     document.getElementById('modal').classList.remove('hidden');
 }
 
@@ -189,58 +203,20 @@ function chiudiModal() {
     document.getElementById('modal').classList.add('hidden');
 }
 
-// --- EXPORT E SINCRONIZZAZIONE ---
 function esportaCSV() {
     let csv = "ID,Nome,Cognome,Telefono,Email,Azienda,Presente\n";
     database.forEach(u => {
-        csv += `${u.id},${u.nome},${u.cognome},${u.telefono},${u.email},${u.azienda},${u.presente ? 'SI' : 'NO'}\n`;
+        csv += `${u.id},"${u.nome}","${u.cognome}","${u.telefono}","${u.email}","${u.azienda}",${u.presente ? 'SI' : 'NO'}\n`;
     });
     
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.setAttribute('href', url);
-    a.setAttribute('download', `report-evento-${new Date().toLocaleDateString()}.csv`);
-    a.click();
-    console.log("📥 CSV esportato.");
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `check-in-report.csv`);
+    link.click();
 }
 
 function vibrateDevice() {
     if ("vibrate" in navigator) navigator.vibrate(100);
-}
-
-// Funzione di comunicazione con Google Sheets
-async function sincronizzaConGoogleSheet() {
-    console.log("📤 Avvio della sincronizzazione con Google Sheets...");
-    if (!navigator.onLine) {
-        console.warn("⚠️ Sistema offline, sincronizzazione interrotta.");
-        return;
-    }
-    
-    if (GOOGLE_SCRIPT_URL === "INSERISCI_QUI_IL_TUO_URL_DI_GOOGLE_APPS_SCRIPT") {
-        mostraModal("❌", "Errore", "Inserisci l'URL del Google Apps Script nel file app.js", "bg-red-50");
-        return;
-    }
-
-    try {
-        mostraModal("🔄", "Sincronizzazione", "Invio dei dati in corso...", "bg-blue-50");
-
-        const response = await fetch(GOOGLE_SCRIPT_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(database)
-        });
-
-        console.log("📤 Richiesta di sincronizzazione inviata.");
-        setTimeout(() => {
-            mostraModal("✅", "Sincronizzato", "Dati salvati con successo sul foglio Google!", "bg-green-50");
-        }, 1200);
-
-    } catch (error) {
-        console.error("❌ Errore durante la sincronizzazione: ", error);
-        mostraModal("❌", "Errore", "Si è verificato un errore durante la sincronizzazione.", "bg-red-50");
-    }
 }
