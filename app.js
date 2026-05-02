@@ -16,7 +16,9 @@ let isScansioneInPausa = false;
 
 // --- INIZIALIZZAZIONE ---
 window.onload = async () => {
-    // 1. Legge prima da Google Sheets se possibile
+    console.log("🔄 Avvio dell'applicazione...");
+    
+    // 1. Legge prima da Google Sheets
     await caricaDaGoogleSheet();
     
     // Inizializza l'interfaccia e avvia i listener
@@ -26,12 +28,15 @@ window.onload = async () => {
     window.addEventListener('offline', checkConnection);
     avviaScanner();
 
-    // 2. Avvia la sincronizzazione automatica ogni 15 minuti (15 * 60 * 1000 ms)
+    // 2. Avvia la sincronizzazione automatica ogni 15 minuti
     setInterval(sincronizzaConGoogleSheet, 900000);
+    console.log("⏱️ Sincronizzazione automatica programmata ogni 15 minuti.");
 };
 
 function checkConnection() {
-    document.getElementById('offlineAlert').classList.toggle('hidden', navigator.onLine);
+    const isOnline = navigator.onLine;
+    document.getElementById('offlineAlert').classList.toggle('hidden', isOnline);
+    console.log("🌐 Stato connessione:", isOnline ? "Online" : "Offline");
 }
 
 function aggiornaUI() {
@@ -39,31 +44,37 @@ function aggiornaUI() {
     document.getElementById('statPresenti').innerText = pres;
     document.getElementById('statMancanti').innerText = database.length - pres;
     localStorage.setItem('event_db', JSON.stringify(database));
+    console.log("📊 UI aggiornata. Presenti:", pres, "| Mancanti:", database.length - pres);
 }
 
 // --- CARICAMENTO DA GOOGLE SHEET (All'avvio) ---
 async function caricaDaGoogleSheet() {
+    console.log("📥 Tentativo di caricamento da Google Sheets...");
+    
     if (!navigator.onLine) {
-        console.log("Sei offline, utilizzo i dati salvati in memoria locale.");
+        console.warn("⚠️ Sei offline, utilizzo i dati salvati in memoria locale.");
         return;
     }
     
     if (GOOGLE_SCRIPT_URL === "INSERISCI_QUI_IL_TUO_URL_DI_GOOGLE_APPS_SCRIPT") {
-        console.warn("URL di Google Apps Script non configurato.");
+        console.error("❌ URL di Google Apps Script non configurato.");
         return;
     }
 
     try {
         const response = await fetch(GOOGLE_SCRIPT_URL);
+        console.log("📥 Risposta ricevuta dal server:", response.status);
+        
         const data = await response.json();
+        console.log("📄 Dati letti dal foglio:", data);
         
         if (data && data.length > 0) {
             database = data; // Sostituisce il database locale con quello del foglio
             aggiornaUI();    // Salva nel localStorage e aggiorna la vista
-            console.log("Database caricato correttamente da Google Sheets");
+            console.log("✅ Database sovrascritto correttamente con i dati di Google Sheets.");
         }
     } catch (error) {
-        console.error("Errore nel caricamento da Google Sheets (utilizzo i dati locali): ", error);
+        console.error("❌ Errore nel caricamento da Google Sheets (utilizzo i dati locali): ", error);
     }
 }
 
@@ -72,11 +83,15 @@ function avviaScanner() {
     html5QrCode = new Html5Qrcode("reader");
     const config = { fps: 15, qrbox: { width: 250, height: 250 } };
     
-    html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
-        onScanSuccess(decodedText);
-    }).catch(err => {
-        console.log("Fotocamera già attiva o permessi negati: ", err);
-    });
+    html5QrCodeStart();
+    
+    function htmlQrCodeStart() {
+      html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
+          onScanSuccess(decodedText);
+      }).catch(err => {
+          console.log("Fotocamera già attiva o permessi negati: ", err);
+      });
+    }
 }
 
 function onScanSuccess(decodedText) {
@@ -88,24 +103,29 @@ function onScanSuccess(decodedText) {
 }
 
 function processaIngresso(codice) {
+    console.log("📷 Scansione rilevata:", codice);
     const utente = database.find(u => u.id === codice || u.codice === codice);
     
     if (!utente) {
         mostraModal("❌", "Errore", "Codice non trovato nel database.", "bg-red-50");
+        console.warn("⚠️ Utente non trovato per il codice:", codice);
         return;
     }
 
     if (utente.presente) {
         mostraModal("⚠️", "Già Entrato", `${utente.nome} ${utente.cognome} ha già effettuato l'accesso.`, "bg-orange-50");
+        console.log("ℹ️ L'utente è già presente:", utente.cognome);
     } else {
         utente.presente = true;
         aggiornaUI();
         mostraModal("✅", "Benvenuto", `${utente.nome} ${utente.cognome}`, "bg-green-50");
+        console.log("🎉 Ingresso registrato per:", utente.cognome);
         
         // Blocca le scansioni per 5 secondi per non leggere a raffica lo stesso badge
         isScansioneInPausa = true;
         setTimeout(() => {
             isScansioneInPausa = false;
+            console.log("📸 Ripresa scansioni.");
         }, 5000);
     }
 }
@@ -156,6 +176,7 @@ function aggiungiOspite(e) {
     e.target.reset();
     
     mostraModal("➕", "Registrato", `${nuovo.nome} è stato aggiunto e accreditato.`, "bg-blue-50");
+    console.log("➕ Nuovo ospite aggiunto:", nuovo.nome, nuovo.cognome);
 }
 
 // --- MODAL FEEDBACK ---
@@ -184,23 +205,29 @@ function esportaCSV() {
     a.setAttribute('href', url);
     a.setAttribute('download', `report-evento-${new Date().toLocaleDateString()}.csv`);
     a.click();
+    console.log("📥 CSV esportato.");
 }
 
 function vibrateDevice() {
     if ("vibrate" in navigator) navigator.vibrate(100);
 }
 
-// Funzione di comunicazione con Google Sheets (Manuale e Automatica)
+// Funzione di comunicazione con Google Sheets
 async function sincronizzaConGoogleSheet() {
-    if (!navigator.onLine) { // Ignora se disconnesso temporaneamente
-         console.log("Sistema offline, sincronizzazione ignorata.");
+    console.log("📤 Avvio della sincronizzazione con Google Sheets...");
+    if (!navigator.onLine) {
+        console.warn("⚠️ Sistema offline, sincronizzazione interrotta.");
+        return;
     }
-
+    
     if (GOOGLE_SCRIPT_URL === "INSERISCI_QUI_IL_TUO_URL_DI_GOOGLE_APPS_SCRIPT") {
+        mostraModal("❌", "Errore", "Inserisci l'URL del Google Apps Script nel file app.js", "bg-red-50");
         return;
     }
 
     try {
+        mostraModal("🔄", "Sincronizzazione", "Invio dei dati in corso...", "bg-blue-50");
+
         const response = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
             mode: 'no-cors',
@@ -209,10 +236,17 @@ async function sincronizzaConGoogleSheet() {
             },
             body: JSON.stringify(database)
         });
+
+        // Poiché usiamo no-cors (necessario per Google Script), la risposta è opaca.
+        // Possiamo assumere che se non ha generato un errore, sia arrivata correttamente.
+        console.log("📤 Richiesta di sincronizzazione inviata (no-cors).");
         
-        // Emette feedback che l'operazione è andata a buon fine sovrascrivendo i dati sul foglio
-        mostraModal("✅", "Sincronizzato", "Dati salvati con successo sul foglio Google!", "bg-green-50");
+        setTimeout(() => {
+            mostraModal("✅", "Sincronizzato", "Dati salvati con successo sul foglio Google!", "bg-green-50");
+        }, 1200);
+
     } catch (error) {
-        console.error("Errore di sincronizzazione: ", error);
+        console.error("❌ Errore durante la sincronizzazione: ", error);
+        mostraModal("❌", "Errore", "Si è verificato un errore durante la sincronizzazione.", "bg-red-50");
     }
 }
