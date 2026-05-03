@@ -14,7 +14,7 @@ let isScansioneInPausa = false;
 window.onload = async () => {
     console.log("🔄 Avvio dell'applicazione...");
     
-    // 1. Carica dati
+    // 1. Tenta la lettura da Google Sheets
     await caricaDaGoogleSheet();
     
     // 2. Inizializza UI e Sensori
@@ -24,6 +24,12 @@ window.onload = async () => {
     window.addEventListener('offline', checkConnection);
     
     avviaScanner();
+
+    // 3. Sincronizzazione automatica ogni 15 minuti (900.000 ms)
+    setInterval(() => {
+        console.log("⏱️ Avvio sincronizzazione automatica programmata...");
+        sincronizzaConGoogleSheet(true); // passiamo true per farlo silenziosamente
+    }, 900000);
 };
 
 // --- FUNZIONI DI RETE ---
@@ -34,6 +40,7 @@ function checkConnection() {
     console.log("🌐 Stato connessione:", isOnline ? "Online" : "Offline");
 }
 
+// Lettura iniziale (GET)
 async function caricaDaGoogleSheet() {
     if (!navigator.onLine || GOOGLE_SCRIPT_URL.includes("INSERISCI")) {
         console.warn("⚠️ Caricamento da Google saltato (Offline o URL mancante).");
@@ -55,32 +62,36 @@ async function caricaDaGoogleSheet() {
         }
     } catch (error) {
         console.error("❌ Errore nel caricamento Cloud:", error);
+        // In caso di errore, il database resta quello caricato dal localStorage all'inizio
     }
 }
 
-// Sincronizza solo il singolo ospite modificato o aggiunto
-async function sincronizzaSingoloOspite(utente) {
+// Scrittura (POST) - Usata sia per manuale che in automatico / eventi (es. last-minute o check-in)
+async function sincronizzaConGoogleSheet(isAutomatic = false) {
     if (!navigator.onLine || GOOGLE_SCRIPT_URL.includes("INSERISCI")) return;
+
+    if (!isAutomatic) {
+        mostraNotifica("🔄", "Sincronizzazione", "Salvataggio sul foglio Google...", "bg-blue-50");
+    }
 
     try {
         await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
-            mode: 'no-cors', 
+            mode: 'no-cors', // Fondamentale per i permessi Google in scrittura
             cache: 'no-cache',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                id: utente.id,
-                nome: utente.nome,
-                cognome: utente.cognome,
-                telefono: utente.telefono || "",
-                email: utente.email || "",
-                azienda: utente.azienda || "",
-                presente: "SI"
-            })
+            body: JSON.stringify(database)
         });
-        console.log("📤 Ospite sincronizzato con Google Sheets");
+
+        console.log("📤 Dati inviati con successo.");
+        if (!isAutomatic) {
+            mostraNotifica("✅", "Sincronizzato", "Dati salvati correttamente!", "bg-green-50");
+        }
     } catch (error) {
-        console.error("❌ Errore nella sincronizzazione dell'ospite:", error);
+        console.error("❌ Errore sincronizzazione:", error);
+        if (!isAutomatic) {
+            mostraNotifica("❌", "Errore", "Impossibile salvare i dati online.", "bg-red-50");
+        }
     }
 }
 
@@ -117,7 +128,7 @@ function processaIngresso(codice) {
         aggiornaUI();
         
         // Sincronizza l'accredito su Google Sheets immediatamente
-        sincronizzaSingoloOspite(utente);
+        sincronizzaConGoogleSheet(true);
         
         mostraNotifica("✅", "Benvenuto", `${utente.nome} ${utente.cognome}`, "bg-green-50");
         
@@ -143,7 +154,6 @@ function cercaDebounced() {
 }
 
 function eseguiRicercaFunzione() {
-    // Funzione interna per i risultati
     eseguiRicerca();
 }
 
@@ -187,8 +197,8 @@ function aggiungiOspite(e) {
     chiudiAddGuestModal();
     e.target.reset();
 
-    // Sincronizzazione immediata dell'ospite last-minute su Google Sheets
-    sincronizzaSingoloOspite(nuovo);
+    // Sincronizzazione immediata dell'ospite sul foglio
+    sincronizzaConGoogleSheet(true);
     
     mostraNotifica("➕", "Registrato", `${nuovo.nome} aggiunto e accreditato.`, "bg-blue-50");
 }
