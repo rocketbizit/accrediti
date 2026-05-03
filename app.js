@@ -14,7 +14,7 @@ let isScansioneInPausa = false;
 window.onload = async () => {
     console.log("🔄 Avvio dell'applicazione...");
     
-    // 1. Tenta la lettura da Google Sheets
+    // 1. Carica dati
     await caricaDaGoogleSheet();
     
     // 2. Inizializza UI e Sensori
@@ -24,12 +24,6 @@ window.onload = async () => {
     window.addEventListener('offline', checkConnection);
     
     avviaScanner();
-
-    // 3. Sincronizzazione automatica ogni 15 minuti (900.000 ms)
-    setInterval(() => {
-        console.log("⏱️ Avvio sincronizzazione automatica programmata...");
-        sincronizzaConGoogleSheet(true); // passiamo true per farlo silenziosamente
-    }, 900000);
 };
 
 // --- FUNZIONI DI RETE ---
@@ -40,7 +34,6 @@ function checkConnection() {
     console.log("🌐 Stato connessione:", isOnline ? "Online" : "Offline");
 }
 
-// Lettura iniziale (GET)
 async function caricaDaGoogleSheet() {
     if (!navigator.onLine || GOOGLE_SCRIPT_URL.includes("INSERISCI")) {
         console.warn("⚠️ Caricamento da Google saltato (Offline o URL mancante).");
@@ -57,40 +50,37 @@ async function caricaDaGoogleSheet() {
         
         if (data && data.length > 0) {
             database = data;
+            localStorage.setItem('event_db', JSON.stringify(database));
             console.log("✅ Database aggiornato dal Cloud.");
         }
     } catch (error) {
         console.error("❌ Errore nel caricamento Cloud:", error);
-        // In caso di errore, il database resta quello caricato dal localStorage all'inizio
     }
 }
 
-// Scrittura (POST) - Usata sia per manuale che automatico
-async function sincronizzaConGoogleSheet(isAutomatic = false) {
+// Sincronizza solo il singolo ospite modificato o aggiunto
+async function sincronizzaSingoloOspite(utente) {
     if (!navigator.onLine || GOOGLE_SCRIPT_URL.includes("INSERISCI")) return;
-
-    if (!isAutomatic) {
-        mostraModal("🔄", "Sincronizzazione", "Salvataggio sul foglio Google...", "bg-blue-50");
-    }
 
     try {
         await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
-            mode: 'no-cors', // Fondamentale per i permessi Google in scrittura
+            mode: 'no-cors', 
             cache: 'no-cache',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(database)
+            body: JSON.stringify({
+                id: utente.id,
+                nome: utente.nome,
+                cognome: utente.cognome,
+                telefono: utente.telefono || "",
+                email: utente.email || "",
+                azienda: utente.azienda || "",
+                presente: "SI"
+            })
         });
-
-        console.log("📤 Dati inviati con successo.");
-        if (!isAutomatic) {
-            mostraModal("✅", "Sincronizzato", "Dati salvati correttamente!", "bg-green-50");
-        }
+        console.log("📤 Ospite sincronizzato con Google Sheets");
     } catch (error) {
-        console.error("❌ Errore sincronizzazione:", error);
-        if (!isAutomatic) {
-            mostraModal("❌", "Errore", "Impossibile salvare i dati online.", "bg-red-50");
-        }
+        console.error("❌ Errore nella sincronizzazione dell'ospite:", error);
     }
 }
 
@@ -111,41 +101,50 @@ function avviaScanner() {
 
 function processaIngresso(codice) {
     console.log("📷 Codice rilevato:", codice);
-    // Controllo flessibile su ID o campo 'codice' se presente
     const utente = database.find(u => u.id == codice || u.codice == codice);
     
     if (!utente) {
-        mostraModal("❌", "Non Trovato", "Questo codice non è in lista.", "bg-red-50");
+        mostraNotifica("❌", "Non Trovato", "Questo codice non è in lista.", "bg-red-50");
         return;
     }
 
-    if (utente.presente) {
-        mostraModal("⚠️", "Già Entrato", `${utente.nome} ${utente.cognome} è già dentro.`, "bg-orange-50");
+    const isPresente = utente.presente === true || utente.presente === "SI";
+
+    if (isPresente) {
+        mostraNotifica("⚠️", "Già Entrato", `${utente.nome} ${utente.cognome} è già dentro.`, "bg-orange-50");
     } else {
         utente.presente = true;
         aggiornaUI();
-        mostraModal("✅", "Benvenuto", `${utente.nome} ${utente.cognome}`, "bg-green-50");
         
-        // Timeout di 5 secondi per evitare doppie letture accidentali
+        // Sincronizza l'accredito su Google Sheets immediatamente
+        sincronizzaSingoloOspite(utente);
+        
+        mostraNotifica("✅", "Benvenuto", `${utente.nome} ${utente.cognome}`, "bg-green-50");
+        
         isScansioneInPausa = true;
-        setTimeout(() => { isScansioneInPausa = false; }, 5000);
+        setTimeout(() => { isScansioneInPausa = false; }, 3000);
+        chiudiSearchModal();
     }
 }
 
 // --- GESTIONE DATI E UI ---
 
 function aggiornaUI() {
-    const pres = database.filter(i => i.presente).length;
+    const pres = database.filter(u => u.presente === true || u.presente === "SI").length;
     document.getElementById('statPresenti').innerText = pres;
     document.getElementById('statMancanti').innerText = database.length - pres;
     
-    // Salva sempre una copia locale di sicurezza
     localStorage.setItem('event_db', JSON.stringify(database));
 }
 
 function cercaDebounced() {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(eseguiRicerca, 300);
+}
+
+function eseguiRicercaFunzione() {
+    // Funzione interna per i risultati
+    eseguiRicerca();
 }
 
 function eseguiRicerca() {
@@ -157,14 +156,15 @@ function eseguiRicerca() {
 
     database.filter(u => (u.nome + " " + u.cognome).toLowerCase().includes(q))
         .forEach(u => {
+            const isPresente = (u.presente === true || u.presente === "SI");
             const div = document.createElement('div');
-            div.className = `p-4 rounded-2xl flex justify-between items-center ${u.presente ? 'bg-slate-100 opacity-60' : 'bg-white shadow-sm border border-slate-200'}`;
+            div.className = `p-4 rounded-2xl flex justify-between items-center ${isPresente ? 'bg-slate-100 opacity-60' : 'bg-white shadow-sm border border-slate-200'}`;
             div.innerHTML = `
                 <div class="text-left">
                     <p class="font-bold text-slate-800">${u.nome} ${u.cognome}</p>
                     <p class="text-xs text-slate-400">${u.azienda || 'Privato'}</p>
                 </div>
-                ${!u.presente ? `<button onclick="processaIngresso('${u.id}')" class="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md">Accredita</button>` : '<i class="fa-solid fa-circle-check text-green-500 text-xl mr-2"></i>'}
+                ${!isPresente ? `<button onclick="processaIngresso('${u.id}')" class="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md">Accredita</button>` : '<i class="fa-solid fa-circle-check text-green-500 text-xl"></i>'}
             `;
             res.appendChild(div);
         });
@@ -173,7 +173,7 @@ function eseguiRicerca() {
 function aggiungiOspite(e) {
     e.preventDefault();
     const nuovo = {
-        id: "W-" + Date.now(),
+        id: "L-" + Date.now(),
         nome: document.getElementById('fn').value,
         cognome: document.getElementById('ln').value,
         telefono: document.getElementById('tel').value,
@@ -184,14 +184,44 @@ function aggiungiOspite(e) {
     
     database.push(nuovo);
     aggiornaUI();
+    chiudiAddGuestModal();
     e.target.reset();
+
+    // Sincronizzazione immediata dell'ospite last-minute su Google Sheets
+    sincronizzaSingoloOspite(nuovo);
     
-    mostraModal("➕", "Registrato", `${nuovo.nome} aggiunto e accreditato.`, "bg-blue-50");
+    mostraNotifica("➕", "Registrato", `${nuovo.nome} aggiunto e accreditato.`, "bg-blue-50");
+}
+
+// --- GESTIONE MODALI ---
+
+function apriSearchModal() {
+    document.getElementById('searchModal').classList.remove('hidden');
+    document.getElementById('searchInput').focus();
+}
+
+function chiudiSearchModal() {
+    document.getElementById('searchModal').classList.add('hidden');
+    document.getElementById('searchInput').value = "";
+    document.getElementById('risultatiRicerca').innerHTML = "";
+}
+
+function apriAddGuestModal() {
+    document.getElementById('addGuestModal').classList.remove('hidden');
+}
+
+function chiudiAddGuestModal() {
+    document.getElementById('addGuestModal').classList.add('hidden');
+}
+
+function aggiungiOspiteEChiudi(event) {
+    aggiungiOspite(event);
+    chiudiAddGuestModal();
 }
 
 // --- UTILITY ---
 
-function mostraModal(icon, title, text, bgColor) {
+function mostraNotifica(icon, title, text, bgColor) {
     document.getElementById('modalIcon').innerText = icon;
     document.getElementById('modalTitle').innerText = title;
     document.getElementById('modalText').innerText = text;
@@ -204,16 +234,17 @@ function chiudiModal() {
 }
 
 function esportaCSV() {
-    let csv = "ID,Nome,Cognome,Telefono,Email,Azienda,Presente\n";
+    let csv = "id,nome,cognome,telefono,email,azienda,presente\n";
     database.forEach(u => {
-        csv += `${u.id},"${u.nome}","${u.cognome}","${u.telefono}","${u.email}","${u.azienda}",${u.presente ? 'SI' : 'NO'}\n`;
+        const p = (u.presente === true || u.presente === "SI") ? "SI" : "NO";
+        csv += `${u.id},"${u.nome}","${u.cognome}","${u.telefono}","${u.email}","${u.azienda}",${p}\n`;
     });
     
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `check-in-report.csv`);
+    link.setAttribute("download", `report-accrediti-${new Date().toLocaleDateString()}.csv`);
     link.click();
 }
 
