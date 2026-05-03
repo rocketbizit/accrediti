@@ -22,6 +22,12 @@
             <h1 class="font-bold text-lg leading-tight">Accrediti<br><span class="text-indigo-600 text-sm">Manager</span></h1>
         </div>
         <div class="flex gap-2">
+            <button onclick="apriSearchModal()" class="p-2 bg-slate-100 rounded-lg text-slate-600" title="Cerca ospite">
+                <i class="fa-solid fa-magnifying-glass"></i>
+            </button>
+            <button onclick="apriAddGuestModal()" class="p-2 bg-slate-100 rounded-lg text-slate-600" title="Nuovo ospite last-minute">
+                <i class="fa-solid fa-user-plus"></i>
+            </button>
             <button onclick="esportaCSV()" class="p-2 bg-slate-100 rounded-lg text-slate-600" title="Scarica CSV">
                 <i class="fa-solid fa-download"></i>
             </button>
@@ -51,32 +57,37 @@
             </div>
         </section>
 
-        <section class="space-y-3">
-            <div class="relative">
+    </main>
+
+    <div id="searchModal" class="fixed inset-0 z-50 flex items-center justify-center p-6 hidden">
+        <div class="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onclick="chiudiSearchModal()"></div>
+        <div class="bg-white w-full max-w-md rounded-3xl p-8 relative z-10 transform transition-all">
+            <h3 class="text-2xl font-bold mb-4 text-slate-800">Cerca Ospite</h3>
+            <div class="relative mb-6">
                 <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
                 <input type="text" id="searchInput" onkeyup="cercaDebounced()" 
                     placeholder="Cerca nome o cognome..." 
-                    class="w-full bg-white border-none shadow-sm rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-indigo-500 outline-none">
+                    class="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-indigo-500 outline-none">
             </div>
-            <div id="risultatiRicerca" class="space-y-2"></div>
-        </section>
+            <div id="risultatiRicerca" class="space-y-2 max-h-60 overflow-y-auto"></div>
+            <button onclick="chiudiSearchModal()" class="w-full mt-6 py-4 bg-slate-100 rounded-2xl font-bold text-slate-700">Chiudi</button>
+        </div>
+    </div>
 
-        <hr class="border-slate-200">
-
-        <details class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <summary class="p-4 font-bold cursor-pointer list-none flex justify-between items-center">
-                Nuovo Ospite Last-Minute <i class="fa-solid fa-plus text-indigo-500"></i>
-            </summary>
-            <form onsubmit="aggiungiOspite(event)" class="p-4 pt-0 grid grid-cols-2 gap-3">
-                <input type="text" id="fn" placeholder="Nome" class="col-span-1 p-3 bg-slate-50 rounded-xl outline-none" required>
-                <input type="text" id="ln" placeholder="Cognome" class="col-span-1 p-3 bg-slate-50 rounded-xl outline-none" required>
-                <input type="tel" id="tel" placeholder="Telefono" class="col-span-2 p-3 bg-slate-50 rounded-xl outline-none">
-                <input type="email" id="em" placeholder="Email" class="col-span-2 p-3 bg-slate-50 rounded-xl outline-none">
-                <input type="text" id="az" placeholder="Azienda (opzionale)" class="col-span-2 p-3 bg-slate-50 rounded-xl outline-none">
-                <button type="submit" class="col-span-2 bg-indigo-600 text-white font-bold py-3 rounded-xl">Registra ed Entra</button>
+    <div id="addGuestModal" class="fixed inset-0 z-50 flex items-center justify-center p-6 hidden">
+        <div class="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onclick="chiudiAddGuestModal()"></div>
+        <div class="bg-white w-full max-w-md rounded-3xl p-8 relative z-10 transform transition-all">
+            <h3 class="text-2xl font-bold mb-6 text-slate-800">Nuovo Ospite Last-Minute</h3>
+            <form onsubmit="aggiungiOspiteEChiudi(event)" class="grid grid-cols-2 gap-3">
+                <input type="text" id="fn" placeholder="Nome" class="col-span-1 p-3 bg-slate-50 rounded-xl outline-none border border-slate-200" required>
+                <input type="text" id="ln" placeholder="Cognome" class="col-span-1 p-3 bg-slate-50 rounded-xl outline-none border border-slate-200" required>
+                <input type="tel" id="tel" placeholder="Telefono" class="col-span-2 p-3 bg-slate-50 rounded-xl outline-none border border-slate-200">
+                <input type="email" id="em" placeholder="Email" class="col-span-2 p-3 bg-slate-50 rounded-xl outline-none border border-slate-200">
+                <input type="text" id="az" placeholder="Azienda (opzionale)" class="col-span-2 p-3 bg-slate-50 rounded-xl outline-none border border-slate-200">
+                <button type="submit" class="col-span-2 bg-indigo-600 text-white font-bold py-4 rounded-xl mt-3">Registra ed Entra</button>
             </form>
-        </details>
-    </main>
+        </div>
+    </div>
 
     <div id="modal" class="fixed inset-0 z-50 flex items-center justify-center p-6 hidden">
         <div class="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onclick="chiudiModal()"></div>
@@ -87,6 +98,25 @@
             <button onclick="chiudiModal()" class="w-full py-4 bg-slate-100 rounded-2xl font-bold text-slate-700">OK, Continua</button>
         </div>
     </div>
+
+    <script>
+        function apriSearchModal() {
+            document.getElementById('searchModal').classList.remove('hidden');
+        }
+        function chiudiSearchModal() {
+            document.getElementById('searchModal').classList.add('hidden');
+        }
+        function apriAddGuestModal() {
+            document.getElementById('addGuestModal').classList.remove('hidden');
+        }
+        function chiudiAddGuestModal() {
+            document.getElementById('addGuestModal').classList.add('hidden');
+        }
+        function aggiungiOspiteEChiudi(event) {
+            aggiungiOspite(event);
+            chiudiAddGuestModal();
+        }
+    </script>
 
     <script src="app.js"></script>
 </body>
