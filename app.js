@@ -25,10 +25,10 @@ window.onload = async () => {
     
     avviaScanner();
 
-    // 3. Sincronizzazione automatica ogni 15 minuti (900.000 ms)
+    // 3. Sincronizzazione automatica ogni 15 minuti
     setInterval(() => {
         console.log("⏱️ Avvio sincronizzazione automatica programmata...");
-        sincronizzaConGoogleSheet(true); // passiamo true per farlo silenziosamente
+        sincronizzaConGoogleSheet(true);
     }, 900000);
 };
 
@@ -36,37 +36,34 @@ window.onload = async () => {
 
 function checkConnection() {
     const isOnline = navigator.onLine;
-    document.getElementById('offlineAlert').classList.toggle('hidden', isOnline);
+    const alertEl = document.getElementById('offlineAlert');
+    if (alertEl) alertEl.classList.toggle('hidden', isOnline);
     console.log("🌐 Stato connessione:", isOnline ? "Online" : "Offline");
 }
 
-// Lettura iniziale (GET)
 async function caricaDaGoogleSheet() {
     if (!navigator.onLine || GOOGLE_SCRIPT_URL.includes("INSERISCI")) {
-        console.warn("⚠️ Caricamento da Google saltato (Offline o URL mancante).");
+        console.warn("⚠️ Caricamento saltato (Offline o URL mancante).");
         return;
     }
     
-    console.log("📥 Richiesta dati a Google Sheets...");
     try {
         const response = await fetch(GOOGLE_SCRIPT_URL);
         if (!response.ok) throw new Error("Risposta del server non valida");
         
         const data = await response.json();
-        console.log("📄 Dati ricevuti:", data);
+        console.log("📄 Dati ricevuti dal Cloud:", data.length, "record");
         
         if (data && data.length > 0) {
             database = data;
             localStorage.setItem('event_db', JSON.stringify(database));
-            console.log("✅ Database aggiornato dal Cloud.");
+            console.log("✅ Database aggiornato correttamente.");
         }
     } catch (error) {
         console.error("❌ Errore nel caricamento Cloud:", error);
-        // In caso di errore, il database resta quello caricato dal localStorage all'inizio
     }
 }
 
-// Scrittura (POST) - Usata sia per manuale che in automatico / eventi (es. last-minute o check-in)
 async function sincronizzaConGoogleSheet(isAutomatic = false) {
     if (!navigator.onLine || GOOGLE_SCRIPT_URL.includes("INSERISCI")) return;
 
@@ -77,7 +74,7 @@ async function sincronizzaConGoogleSheet(isAutomatic = false) {
     try {
         await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
-            mode: 'no-cors', // Fondamentale per i permessi Google in scrittura
+            mode: 'no-cors', 
             cache: 'no-cache',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(database)
@@ -95,7 +92,7 @@ async function sincronizzaConGoogleSheet(isAutomatic = false) {
     }
 }
 
-// --- LOGICA SCANNER ---
+// --- LOGICA SCANNER & PROCESSO INGRESSO ---
 
 function avviaScanner() {
     html5QrCode = new Html5Qrcode("reader");
@@ -111,27 +108,43 @@ function avviaScanner() {
 }
 
 function processaIngresso(codice) {
-    console.log("📷 Codice rilevato:", codice);
-    const utente = database.find(u => u.id == codice || u.codice == codice);
+    if (!codice) return;
+    
+    // Pulizia estrema del codice scansionato
+    const codiceCercato = codice.toString().trim().toLowerCase();
+    console.log("📷 Cerco codice:", codiceCercato);
+
+    // Ricerca nel database con normalizzazione delle chiavi e dei valori
+    const utente = database.find(u => {
+        // Controlla id, ID o codice gestendo eventuali maiuscole/minuscole nelle chiavi JSON
+        const idDatabase = (u.id || u.ID || u.codice || "").toString().trim().toLowerCase();
+        return idDatabase === codiceCercato;
+    });
     
     if (!utente) {
-        mostraNotifica("❌", "Non Trovato", "Questo codice non è in lista.", "bg-red-50");
+        console.error("❌ Codice non trovato nel database:", codiceCercato);
+        mostraNotifica("❌", "Non Trovato", `Il codice ${codiceCercato.substring(0,8)}... non è in lista.`, "bg-red-50");
         return;
     }
 
-    const isPresente = utente.presente === true || utente.presente === "SI";
+    // Normalizzazione stato presenza (gestisce booleani o stringhe "SI"/"true")
+    const isPresente = utente.presente === true || 
+                       String(utente.presente).toUpperCase() === "SI" || 
+                       String(utente.presente).toLowerCase() === "true";
 
     if (isPresente) {
-        mostraNotifica("⚠️", "Già Entrato", `${utente.nome} ${utente.cognome} è già dentro.`, "bg-orange-50");
+        mostraNotifica("⚠️", "Già Entrato", `${utente.nome} ${utente.cognome} risulta già accreditato.`, "bg-orange-50");
     } else {
+        // Aggiorna lo stato nel database locale
         utente.presente = true;
         aggiornaUI();
         
-        // Sincronizza l'accredito su Google Sheets immediatamente
+        // Sincronizza immediatamente
         sincronizzaConGoogleSheet(true);
         
         mostraNotifica("✅", "Benvenuto", `${utente.nome} ${utente.cognome}`, "bg-green-50");
         
+        // Pausa per evitare letture multiple dello stesso QR
         isScansioneInPausa = true;
         setTimeout(() => { isScansioneInPausa = false; }, 3000);
         chiudiSearchModal();
@@ -141,9 +154,17 @@ function processaIngresso(codice) {
 // --- GESTIONE DATI E UI ---
 
 function aggiornaUI() {
-    const pres = database.filter(u => u.presente === true || u.presente === "SI").length;
-    document.getElementById('statPresenti').innerText = pres;
-    document.getElementById('statMancanti').innerText = database.length - pres;
+    const pres = database.filter(u => 
+        u.presente === true || 
+        String(u.presente).toUpperCase() === "SI" || 
+        String(u.presente).toLowerCase() === "true"
+    ).length;
+
+    const statPresenti = document.getElementById('statPresenti');
+    const statMancanti = document.getElementById('statMancanti');
+    
+    if (statPresenti) statPresenti.innerText = pres;
+    if (statMancanti) statMancanti.innerText = database.length - pres;
     
     localStorage.setItem('event_db', JSON.stringify(database));
 }
@@ -153,31 +174,31 @@ function cercaDebounced() {
     searchTimeout = setTimeout(eseguiRicerca, 300);
 }
 
-function eseguiRicercaFunzione() {
-    eseguiRicerca();
-}
-
 function eseguiRicerca() {
-    const q = document.getElementById('searchInput').value.toLowerCase();
+    const q = document.getElementById('searchInput').value.toLowerCase().trim();
     const res = document.getElementById('risultatiRicerca');
+    if (!res) return;
     res.innerHTML = "";
 
     if (q.length < 2) return;
 
-    database.filter(u => (u.nome + " " + u.cognome).toLowerCase().includes(q))
-        .forEach(u => {
-            const isPresente = (u.presente === true || u.presente === "SI");
-            const div = document.createElement('div');
-            div.className = `p-4 rounded-2xl flex justify-between items-center ${isPresente ? 'bg-slate-100 opacity-60' : 'bg-white shadow-sm border border-slate-200'}`;
-            div.innerHTML = `
-                <div class="text-left">
-                    <p class="font-bold text-slate-800">${u.nome} ${u.cognome}</p>
-                    <p class="text-xs text-slate-400">${u.azienda || 'Privato'}</p>
-                </div>
-                ${!isPresente ? `<button onclick="processaIngresso('${u.id}')" class="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md">Accredita</button>` : '<i class="fa-solid fa-circle-check text-green-500 text-xl"></i>'}
-            `;
-            res.appendChild(div);
-        });
+    database.filter(u => {
+        const nomeCompleto = `${u.nome} ${u.cognome}`.toLowerCase();
+        const azienda = (u.azienda || "").toLowerCase();
+        return nomeCompleto.includes(q) || azienda.includes(q);
+    }).forEach(u => {
+        const isPresente = (u.presente === true || String(u.presente).toUpperCase() === "SI");
+        const div = document.createElement('div');
+        div.className = `p-4 rounded-2xl flex justify-between items-center ${isPresente ? 'bg-slate-100 opacity-60' : 'bg-white shadow-sm border border-slate-200'}`;
+        div.innerHTML = `
+            <div class="text-left">
+                <p class="font-bold text-slate-800">${u.nome} ${u.cognome}</p>
+                <p class="text-xs text-slate-400">${u.azienda || 'Privato'}</p>
+            </div>
+            ${!isPresente ? `<button onclick="processaIngresso('${u.id || u.ID}')" class="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md">Accredita</button>` : '<i class="fa-solid fa-circle-check text-green-500 text-xl"></i>'}
+        `;
+        res.appendChild(div);
+    });
 }
 
 function aggiungiOspite(e) {
@@ -197,9 +218,7 @@ function aggiungiOspite(e) {
     chiudiAddGuestModal();
     e.target.reset();
 
-    // Sincronizzazione immediata dell'ospite sul foglio
     sincronizzaConGoogleSheet(true);
-    
     mostraNotifica("➕", "Registrato", `${nuovo.nome} aggiunto e accreditato.`, "bg-blue-50");
 }
 
@@ -224,11 +243,6 @@ function chiudiAddGuestModal() {
     document.getElementById('addGuestModal').classList.add('hidden');
 }
 
-function aggiungiOspiteEChiudi(event) {
-    aggiungiOspite(event);
-    chiudiAddGuestModal();
-}
-
 // --- UTILITY ---
 
 function mostraNotifica(icon, title, text, bgColor) {
@@ -246,8 +260,8 @@ function chiudiModal() {
 function esportaCSV() {
     let csv = "id,nome,cognome,telefono,email,azienda,presente\n";
     database.forEach(u => {
-        const p = (u.presente === true || u.presente === "SI") ? "SI" : "NO";
-        csv += `${u.id},"${u.nome}","${u.cognome}","${u.telefono}","${u.email}","${u.azienda}",${p}\n`;
+        const p = (u.presente === true || String(u.presente).toUpperCase() === "SI") ? "SI" : "NO";
+        csv += `${u.id || u.ID},"${u.nome}","${u.cognome}","${u.telefono}","${u.email}","${u.azienda}",${p}\n`;
     });
     
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
